@@ -3,9 +3,11 @@ import * as Redux from 'react-redux';
 import WebMidi from 'webmidi';
 import { Menu, Header, Segment } from 'semantic-ui-react';
 import * as Device from './deviceSlice';
+import { STATUS } from '../../app/constants';
 
 const MidiDeviceSelector = () => {
     const dispatch = Redux.useDispatch();
+    const status = Redux.useSelector(store => store.device.status);
     const current = Redux.useSelector(store => store.device.current);
     const all = Redux.useSelector(store => store.device.all)
 
@@ -19,7 +21,6 @@ const MidiDeviceSelector = () => {
                 return;
             }
             console.log("Webmidi enabled!");
-            console.table(WebMidi.inputs);
             const allDevices = WebMidi.inputs.map(it => ({
                 id: it.id,
                 name: it.name,
@@ -29,7 +30,7 @@ const MidiDeviceSelector = () => {
                 all: allDevices,
                 current: allDevices[0],
             }));
-            console.log("Resetting Disconnected-Listener");
+            console.log("Setup Disconnected-Listener");
             WebMidi.removeListener('disconnected');
             WebMidi.addListener('disconnected', event => {
                 console.log("Disconnected! Why though.", event);
@@ -39,8 +40,15 @@ const MidiDeviceSelector = () => {
     }, [dispatch]);
 
     React.useEffect(() => {
+        if (status === STATUS.OK) {
+            return;
+        }
+        console.log("Check Need for webMidiRestart, status is:", status);
         webMidiRestart();
-    }, [webMidiRestart]);
+        if (status === STATUS.NEED_REFRESH) {
+            dispatch(Device.setStatusRefresh(false));
+        }
+    }, [webMidiRestart, status, dispatch]);
 
     if (!WebMidi.inputs) {
         return <h3>WebMidi not enabled yet.</h3>
@@ -60,7 +68,13 @@ const MidiDeviceSelector = () => {
                         key = {it.id}
                         active = {current && current.id === it.id}
                         name = {it.name}
-                        onClick = {(_, {name}) => {dispatch(Device.setCurrentByName(name))}}
+                        onClick = {(_, item) => {
+                            console.log("Clickiclick.");
+                            if (item.active) {
+                                dispatch(Device.setStatusRefresh());
+                            }
+                            dispatch(Device.setCurrentByName(item.name));
+                        }}
                     />
                 )
             }

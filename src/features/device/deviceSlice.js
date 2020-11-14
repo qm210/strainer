@@ -34,9 +34,17 @@ export const deviceSlice = createSlice({
     setCurrentByName: (state, action) => {
         state.current = state.all.find(it => it.name === action.payload);
     },
+    setStatusRefresh: (state, action) => {
+        if (state.status === STATUS.OK && action.payload !== false) {
+            state.status = STATUS.NEED_REFRESH;
+        }
+        else if (state.status === STATUS.REFRESH && action.payload === false) {
+            state.status = STATUS.OK;
+        }
+    }
   },
 });
 
-export const { set, setError, reset, setCurrentByName } = deviceSlice.actions;
+export const { set, setError, reset, setCurrentByName, setStatusRefresh } = deviceSlice.actions;
 
 export default deviceSlice.reducer;

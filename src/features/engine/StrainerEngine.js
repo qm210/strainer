@@ -3,6 +3,7 @@ import * as Redux from 'react-redux';
 import WebMidi from 'webmidi';
 import { Header, Segment } from 'semantic-ui-react';
 import Slider from 'react-rangeslider';
+import * as Param from './paramSlice';
 
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 const channels = 2;
@@ -33,7 +34,6 @@ class SimpleSynth {
 
     advanceIndex() {
         this.voiceIndex = (this.voiceIndex + 1) % this.voices;
-        console.log(this.voiceIndex);
     }
 
     velocityFunction(vel) {
@@ -70,7 +70,7 @@ const createSynthProcessor = async (ctx) => {
     let procNode;
     try {
         await ctx.audioWorklet.addModule("worklets/processor.js");
-        procNode = new AudioWorkletNode(ctx, "my-nice-noiser");
+        procNode = new AudioWorkletNode(ctx, "cheap-crush");
     }
     catch (e) {
         console.log("Couldn't get it up!", e);
@@ -87,7 +87,8 @@ const StrainerEngine = () => {
     const [synth, setSynth] = React.useState(new SimpleSynth())
     const audioSource = React.useRef();
     const synthProc = React.useRef();
-    const [pw, setPw] = React.useState(0.75);
+    const pw = Redux.useSelector(store => store.param.pw);
+    const bitcrushRate = Redux.useSelector(store => store.param.bitcrushRate);
 
     const currentDevice = React.useMemo(() =>
         (current && WebMidi.inputs.find(it => it.id === current.id)) || null
@@ -105,7 +106,14 @@ const StrainerEngine = () => {
         if (!audioContext) {
             initAudioContext();
         }
-    }, [audioContext, setAudioContext]);
+    }, [audioContext, setAudioContext, bitcrushRate]);
+
+    React.useEffect(() => {
+        if (!synthProc.current) {
+            return;
+        }
+        synthProc.current.parameters.get("quant").value = bitcrushRate;
+    }, [bitcrushRate])
 
     React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {
@@ -146,7 +154,7 @@ const StrainerEngine = () => {
     React.useEffect(() => {
         setSynth(new SimpleSynth({pw}));
     }, [pw]);
-    console.log(pw);
+
     return <>
         <Header as='h4' attached='top'>
             Engine.
@@ -158,7 +166,15 @@ const StrainerEngine = () => {
                 max = {0.99}
                 step = {0.01}
                 value = {pw}
-                onChange = {value => setPw(value)}
+                onChange = {value => dispatch(Param.update({pw: value}))}
+            />
+            <label>bitcrush</label>
+            <Slider
+                min = {1}
+                max = {128}
+                step = {1}
+                value = {bitcrushRate}
+                onChange = {value => dispatch(Param.update({bitcrushRate: value}))}
             />
         </Segment>
     </>;

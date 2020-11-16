@@ -62,31 +62,41 @@ class SimpleSynth {
 
 }
 
-const createSynthProcessor = async (ctx) => {
+const PROC_SYNTH = "cheap-synth";
+const PROC_CRUSH = "cheap-crush";
+
+const createProcessors = async (ctx) => {
     if (!ctx) {
         console.log("Well, no context. Whatchudo?");
         return;
     }
-    let procNode;
+    const procNodes = [];
     try {
         await ctx.audioWorklet.addModule("worklets/processor.js");
-        procNode = new AudioWorkletNode(ctx, "cheap-crush");
+        const synthNode = new AudioWorkletNode(ctx, PROC_SYNTH)
+        synthNode.port.onmessage = event => {
+            console.log("Synth Worklet Node received messidsch:", event)
+            synthNode.port.postMessage({
+                soWhat: "thanks!"
+            });
+        };
+        procNodes.push(synthNode);
+        procNodes.push(new AudioWorkletNode(ctx, PROC_CRUSH));
     }
     catch (e) {
         console.log("Couldn't get it up!", e);
         return null;
     }
     await ctx.resume();
-    return procNode;
+    return procNodes;
 }
 
 const StrainerEngine = () => {
     const dispatch = Redux.useDispatch();
     const current = Redux.useSelector(store => store.device.current);
-    const [audioContext, setAudioContext] = React.useState(null);
+    const [audioState, setAudioState] = React.useState({context: null, proc: []});
     const [synth, setSynth] = React.useState(new SimpleSynth())
     const audioSource = React.useRef();
-    const synthProc = React.useRef();
     const pw = Redux.useSelector(store => store.param.pw);
     const bitcrushRate = Redux.useSelector(store => store.param.bitcrushRate);
 
@@ -100,20 +110,24 @@ const StrainerEngine = () => {
             if (ctx.audioWorklet === undefined) {
                 alert("AudioWorklet undefined, can't do shit!");
             }
-            synthProc.current = await createSynthProcessor(ctx);
-            setAudioContext(ctx);
+            const proc = await createProcessors(ctx);
+            console.log("RIGHT SO PROC IS", proc);
+            setAudioState({context: ctx, proc});
         };
-        if (!audioContext) {
+        if (!audioState.context) {
             initAudioContext();
         }
-    }, [audioContext, setAudioContext, bitcrushRate]);
+    }, [audioState, setAudioState, bitcrushRate]);
+
+    // has to match the createProcessors() order of AudioWorkletProcessor creation!
+    const [synthProc, crushProc] = React.useMemo(() => audioState.proc || Array(2).fill(null), [audioState]);
 
     React.useEffect(() => {
-        if (!synthProc.current) {
+        if (!crushProc) {
             return;
         }
-        synthProc.current.parameters.get("quant").value = bitcrushRate;
-    }, [bitcrushRate])
+        crushProc.parameters.get("quant").value = bitcrushRate;
+    }, [crushProc, bitcrushRate])
 
     React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {
@@ -121,26 +135,27 @@ const StrainerEngine = () => {
             return;
         }
 
-        if (!audioContext) {
+        if (!audioState.context) {
             console.log("No Audio Context.")
             return;
         }
 
         const noteOnListener = event => {
-            console.log(event.note);
-            audioSource.current = audioContext.createBufferSource();
-            audioSource.current.buffer = synth.newNote(audioContext, .5 * audioContext.sampleRate, event);
-            if (synthProc.current) {
-                console.log("synthproc", synthProc);
-                audioSource.current.connect(synthProc.current).connect(audioContext.destination);
+            console.log(event.note, synthProc, crushProc);
+            audioSource.current = audioState.context.createBufferSource();
+            audioSource.current.buffer = synth.newNote(audioState.context, .5 * audioState.context.sampleRate, event);
+            if (synthProc && crushProc) {
+                audioSource.current.connect(synthProc).connect(crushProc).connect(audioState.context.destination);
+            }
+            else if (crushProc) {
+                audioSource.current.connect(crushProc).connect(audioState.context.destination);
             }
             else {
-                audioSource.current.connect(audioContext.destination);
+                audioSource.current.connect(audioState.context.destination);
             }
             audioSource.current.start();
             audioSource.current.onended = () => {
                 audioSource.current = null;
-                console.log("Audio Source Ended.");
             };
         }
 
@@ -149,7 +164,7 @@ const StrainerEngine = () => {
         return () => {
             currentDevice.removeListener('noteon', 'all', noteOnListener);
         }
-    }, [dispatch, synth, audioContext, currentDevice]);
+    }, [dispatch, synth, audioState, currentDevice, synthProc, crushProc]);
 
     React.useEffect(() => {
         setSynth(new SimpleSynth({pw}));

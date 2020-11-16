@@ -1,3 +1,29 @@
+class CheapSynth extends AudioWorkletProcessor {
+
+    constructor() {
+        super();
+        this.freq = 0;
+        this.port.onmessage = this.handleMessage.bind(this);
+        this.timeZero = currentTime;
+        console.log("time zero is", this.timeZero);
+    }
+
+    handleMessage(event) {
+        console.log("lel we got...", event);
+    }
+
+    process(inputList, outputList, parameters) {
+        if (currentTime - this.timeZero > 1.0) {
+            this.port.postMessage({
+              message: '1 second passed.',
+            });
+            this.timeZero = currentTime;
+          }
+        return true;
+    }
+
+};
+
 class CheapCrush extends AudioWorkletProcessor {
 
     constructor() {
@@ -39,4 +65,5 @@ class CheapCrush extends AudioWorkletProcessor {
 
 }
 
+registerProcessor("cheap-synth", CheapSynth);
 registerProcessor("cheap-crush", CheapCrush);

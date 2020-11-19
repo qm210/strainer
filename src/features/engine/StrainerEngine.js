@@ -46,8 +46,7 @@ const StrainerEngine = () => {
     const current = Redux.useSelector(store => store.device.current);
     const [audioState, setAudioState] = React.useState({context: null, proc: []});
     const audioSource = React.useRef();
-    const cutoff = Redux.useSelector(store => store.param.cutoff);
-    const bitcrushRate = Redux.useSelector(store => store.param.bitcrushRate);
+    const param = Redux.useSelector(store => store.param);
 
     const currentDevice = React.useMemo(() =>
         (current && WebMidi.inputs.find(it => it.id === current.id)) || null
@@ -60,30 +59,38 @@ const StrainerEngine = () => {
                 alert("AudioWorklet undefined, can't do shit!");
             }
             const proc = await createProcessors(ctx);
-            console.log("RIGHT SO PROC IS", proc);
             setAudioState({context: ctx, proc});
         };
         if (!audioState.context) {
             initAudioContext();
         }
-    }, [audioState, setAudioState, bitcrushRate]);
+    }, [audioState, setAudioState]);
 
     // has to match the createProcessors() order of AudioWorkletProcessor creation!
     const [synthProc, crushProc, filterProc] = React.useMemo(() => audioState.proc || Array(PROCS.length).fill(null), [audioState]);
 
     React.useEffect(() => {
+        if (!synthProc) {
+            return;
+        }
+        synthProc.parameters.get("fmSaw").value = param.fmSaw;
+        synthProc.parameters.get("pw").value = param.pw;
+        synthProc.parameters.get("decay").value = param.decay;
+    }, [synthProc, param])
+
+    React.useEffect(() => {
         if (!crushProc) {
             return;
         }
-        crushProc.parameters.get("quant").value = bitcrushRate;
-    }, [crushProc, bitcrushRate])
+        crushProc.parameters.get("quant").value = param.bitcrushRate;
+    }, [crushProc, param.bitcrushRate])
 
     React.useEffect(() => {
         if (!filterProc) {
             return;
         }
-        filterProc.parameters.get("cutoff").value = cutoff;
-    }, [filterProc, cutoff]);
+        filterProc.parameters.get("cutoff").value = param.cutoff;
+    }, [filterProc, param.cutoff]);
 
     React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {
@@ -127,7 +134,7 @@ const StrainerEngine = () => {
                 min = {0}
                 max = {6666}
                 step = {1}
-                value = {cutoff}
+                value = {param.cutoff}
                 onChange = {value => dispatch(Param.update({cutoff: value}))}
             />
             <label>bitcrush</label>
@@ -135,8 +142,24 @@ const StrainerEngine = () => {
                 min = {1}
                 max = {128}
                 step = {1}
-                value = {bitcrushRate}
+                value = {param.bitcrushRate}
                 onChange = {value => dispatch(Param.update({bitcrushRate: value}))}
+            />
+            <label>phase distortion (FM)</label>
+            <Slider
+                min = {0}
+                max = {10}
+                step = {.01}
+                value = {param.fmSaw}
+                onChange = {value => dispatch(Param.update({fmSaw: value}))}
+            />
+            <label>decay</label>
+            <Slider
+                min = {0.01}
+                max = {1}
+                step = {.01}
+                value = {param.decay}
+                onChange = {value => dispatch(Param.update({decay: value}))}
             />
         </Segment>
     </>;

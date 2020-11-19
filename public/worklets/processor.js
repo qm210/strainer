@@ -2,21 +2,39 @@ const saw = param => phase => (2 * (phase % 1) - 1);
 const detune = osc => phase => (0.4 * osc(phase) + .4 * osc(phase*1.01) + .4 * osc(phase*.984));
 const square = param => phase => (phase % 1) > (param.pw || .5) ? 1 : -1;
 
-const phaseZero = Array(2).fill(0);
 
 class CheapSynth extends AudioWorkletProcessor {
+    static get parameterDescriptors() {
+        return [{
+            name: 'decay',
+            defaultValue: .25,
+            minValue: 0.01,
+            maxValue: 1,
+        }, {
+            name: 'pw',
+            defaultValue: .75,
+            minValue: 0.5,
+            maxValue: 0.99,
+        }, {
+            name: 'fmSaw',
+            defaultValue: 0,
+            minValue: 0,
+            maxValue: 1,
+        }];
+    }
 
     constructor() {
         super();
-        this.phase = phaseZero;
         this.port.onmessage = this.handleMessage.bind(this);
-        this.timeZero = null;
-
-        this.freq = 0;
-        this.vel = 0;
-        this.osc = saw()
-        this.envDecay = .25;
-        this.env = (time) => Math.exp(-time/this.envDecay);
+        this.voice = Array(3).fill({
+            phase: 0,
+            timeZero: null,
+            freq: 0,
+            vel: 0,
+        });
+        this.voiceIndex = 0;
+        this.osc = null;
+        this.env = (time, param) => !param ? 1 : Math.exp(-time/param.decay);
     }
 
     velocityFunc = vel => vel*vel;
@@ -25,10 +43,14 @@ class CheapSynth extends AudioWorkletProcessor {
         const {data} = event;
         switch (data.type) {
             case "noteon":
-                this.timeZero = currentTime;
-                this.phase = phaseZero;
-                this.freq = data.freq;
-                this.vel = this.velocityFunc(data.vel);
+                this.voice[this.voiceIndex] = ({
+                    ...this.voice[this.voiceIndex],
+                    timeZero: currentTime,
+                    phase: 0,
+                    freq: data.freq,
+                    vel: this.velocityFunc(data.vel)
+                });
+                this.voiceIndex = (this.voiceIndex + 1) % this.voice.length;
                 break;
 
             default:
@@ -45,15 +67,21 @@ class CheapSynth extends AudioWorkletProcessor {
             this.timeZero = currentTime;
           }
           */
-        if (this.timeZero === null) {
-            return true;
-        }
+        const envDecay = parameters.decay[0];
+        const fmSaw = parameters.fmSaw[0];
+        const pw = parameters.pw[0];
 
         const output = outputList[0];
-        for(let ch=0; ch < output.length; ch++) {
-            for(let i=0; i < output[ch].length; i++) {
-                output[ch][i] = this.osc(this.phase[ch]) * this.vel * this.env(currentTime - this.timeZero);
-                this.phase[ch] = (this.phase[ch] + this.freq/sampleRate) % 1;
+        for (let i=0; i < output[0].length; i++) {
+            for (const voice of this.voice) {
+                if (voice.timeZero === null) {
+                    continue;
+                }
+                const noteTime = currentTime - voice.timeZero;
+                const osc = phase => saw()(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
+                voice.phase = (voice.phase + voice.freq/sampleRate) % 1;
+                output[0][i] += osc(voice.phase) * voice.vel * this.env(noteTime, {decay: envDecay});
+//                output[1][i] = i < 10 ? 0 : output[0][i - 10];
             }
         }
         return true;

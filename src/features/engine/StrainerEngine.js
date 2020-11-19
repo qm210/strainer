@@ -125,7 +125,7 @@ const StrainerEngine = () => {
             <label>cutoff freq</label>
             <Slider
                 min = {0}
-                max = {10000}
+                max = {6666}
                 step = {1}
                 value = {cutoff}
                 onChange = {value => dispatch(Param.update({cutoff: value}))}

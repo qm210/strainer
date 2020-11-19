@@ -2,6 +2,7 @@ import { createSlice } from '@reduxjs/toolkit';
 
 const initialState = {
     pw: .75,
+    cutoff: 250,
     bitcrushRate: 1,
 };
 

@@ -4,16 +4,10 @@ import WebMidi from 'webmidi';
 import { Header, Segment } from 'semantic-ui-react';
 import Slider from 'react-rangeslider';
 import * as Param from './paramSlice';
-import { reducedObject } from './../../app/utils';
 
 const AudioContext = window.AudioContext || window.webkitAudioContext;
-const channels = 2;
 
 const noteFreq = (noteNumber) => 440 * Math.pow(2, (noteNumber - 69)/12);
-
-const saw = param => phase => (2 * (phase % 1) - 1);
-const detune = osc => phase => (0.4 * osc(phase) + .4 * osc(phase*1.01) + .4 * osc(phase*.984));
-const square = param => phase => (phase % 1) > (param.pw || .5) ? 1 : -1;
 
 const synthEvent = event => ({
     type: event.type,
@@ -21,56 +15,11 @@ const synthEvent = event => ({
     vel: event.velocity
 });
 
-class SimpleSynth {
-    constructor(params = {}) {
-        this.voices = params.voices || 3;
-        this.voice = [];
-        for (let v = 0; v < this.voices; v++) {
-            this.voice.push({
-                freq: null,
-                vel: null,
-                triggeredAt: null,
-                osc: detune(square({pw: (params.pw || 0.5) * (1 - .04 * v) % 1})),
-                envTime: 0,
-                envDecay: .25,
-                phase: 0,
-            });
-        }
-        this.voiceIndex = 0;
-    }
-
-    advanceIndex() {
-        this.voiceIndex = (this.voiceIndex + 1) % this.voices;
-    }
-
-    velocityFunction(vel) {
-        return .5 * (vel + vel * vel);
-    }
-
-    newNote (ctx, frames, event) {
-        const arrayBuffer = ctx.createBuffer(channels, frames, ctx.sampleRate);
-
-        const voice = this.voice[this.voiceIndex];
-        voice.freq = noteFreq(event.note.number);
-        voice.triggeredAt = event.timestamp
-        voice.vel = this.velocityFunction(event.velocity);
-        for (let ch = 0; ch < channels; ch++) {
-            const nowBuffering = arrayBuffer.getChannelData(ch);
-            for (let s = 0; s < frames; s++) {
-                const t = s / ctx.sampleRate;
-                voice.phase += voice.freq / ctx.sampleRate;
-                voice.envTime = t;
-                nowBuffering[s] = this.velocityFunction(event.velocity) * Math.exp(-voice.envTime / voice.envDecay) * voice.osc(voice.phase);
-            }
-        }
-        this.advanceIndex();
-        return arrayBuffer;
-    }
-
-}
-
-const PROC_SYNTH = "cheap-synth";
-const PROC_CRUSH = "cheap-crush";
+const PROCS = [
+    "cheap-synth",
+    "cheap-crush",
+    "cheap-filter"
+];
 
 const createProcessors = async (ctx, synthHandler) => {
     if (!ctx) {
@@ -80,10 +29,9 @@ const createProcessors = async (ctx, synthHandler) => {
     const procNodes = [];
     try {
         await ctx.audioWorklet.addModule("worklets/processor.js");
-        const synthNode = new AudioWorkletNode(ctx, PROC_SYNTH)
-        synthNode.port.onmessage = synthHandler;
-        procNodes.push(synthNode);
-        procNodes.push(new AudioWorkletNode(ctx, PROC_CRUSH));
+        for (const proc of PROCS) {
+            procNodes.push(new AudioWorkletNode(ctx, proc));
+        }
     }
     catch (e) {
         console.log("Couldn't get it up!", e);
@@ -97,9 +45,8 @@ const StrainerEngine = () => {
     const dispatch = Redux.useDispatch();
     const current = Redux.useSelector(store => store.device.current);
     const [audioState, setAudioState] = React.useState({context: null, proc: []});
-    const [synth, setSynth] = React.useState(new SimpleSynth())
     const audioSource = React.useRef();
-    const pw = Redux.useSelector(store => store.param.pw);
+    const cutoff = Redux.useSelector(store => store.param.cutoff);
     const bitcrushRate = Redux.useSelector(store => store.param.bitcrushRate);
 
     const currentDevice = React.useMemo(() =>
@@ -112,9 +59,7 @@ const StrainerEngine = () => {
             if (ctx.audioWorklet === undefined) {
                 alert("AudioWorklet undefined, can't do shit!");
             }
-            const proc = await createProcessors(ctx, event => {
-                console.log("Synth Worklet Node received messidsch:", event)
-            });
+            const proc = await createProcessors(ctx);
             console.log("RIGHT SO PROC IS", proc);
             setAudioState({context: ctx, proc});
         };
@@ -124,7 +69,7 @@ const StrainerEngine = () => {
     }, [audioState, setAudioState, bitcrushRate]);
 
     // has to match the createProcessors() order of AudioWorkletProcessor creation!
-    const [synthProc, crushProc] = React.useMemo(() => audioState.proc || Array(2).fill(null), [audioState]);
+    const [synthProc, crushProc, filterProc] = React.useMemo(() => audioState.proc || Array(PROCS.length).fill(null), [audioState]);
 
     React.useEffect(() => {
         if (!crushProc) {
@@ -132,6 +77,13 @@ const StrainerEngine = () => {
         }
         crushProc.parameters.get("quant").value = bitcrushRate;
     }, [crushProc, bitcrushRate])
+
+    React.useEffect(() => {
+        if (!filterProc) {
+            return;
+        }
+        filterProc.parameters.get("cutoff").value = cutoff;
+    }, [filterProc, cutoff]);
 
     React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {
@@ -145,19 +97,13 @@ const StrainerEngine = () => {
         }
 
         const noteOnListener = event => {
-            console.table(synthEvent(event));
             audioSource.current = audioState.context.createBufferSource();
-            audioSource.current.buffer = synth.newNote(audioState.context, .5 * audioState.context.sampleRate, event);
-            if (synthProc && crushProc) {
-                synthProc.port.postMessage(synthEvent(event))
-                audioSource.current.connect(synthProc).connect(crushProc).connect(audioState.context.destination);
+            let chain = audioSource.current;
+            for (const proc of audioState.proc) {
+                proc.port.postMessage(synthEvent(event));
+                chain = chain.connect(proc);
             }
-            else if (crushProc) {
-                audioSource.current.connect(crushProc).connect(audioState.context.destination);
-            }
-            else {
-                audioSource.current.connect(audioState.context.destination);
-            }
+            chain.connect(audioState.context.destination);
             audioSource.current.start();
             audioSource.current.onended = () => {
                 audioSource.current = null;
@@ -169,24 +115,20 @@ const StrainerEngine = () => {
         return () => {
             currentDevice.removeListener('noteon', 'all', noteOnListener);
         }
-    }, [dispatch, synth, audioState, currentDevice, synthProc, crushProc]);
-
-    React.useEffect(() => {
-        setSynth(new SimpleSynth({pw}));
-    }, [pw]);
+    }, [dispatch, audioState, currentDevice]);
 
     return <>
         <Header as='h4' attached='top'>
             Engine.
         </Header>
         <Segment attached>
-            <label>pulse width</label>
+            <label>cutoff freq</label>
             <Slider
-                min = {0.5}
-                max = {0.99}
-                step = {0.01}
-                value = {pw}
-                onChange = {value => dispatch(Param.update({pw: value}))}
+                min = {0}
+                max = {10000}
+                step = {1}
+                value = {cutoff}
+                onChange = {value => dispatch(Param.update({cutoff: value}))}
             />
             <label>bitcrush</label>
             <Slider

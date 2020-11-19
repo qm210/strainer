@@ -4,6 +4,7 @@ import WebMidi from 'webmidi';
 import { Header, Segment } from 'semantic-ui-react';
 import Slider from 'react-rangeslider';
 import * as Param from './paramSlice';
+import { reducedObject } from './../../app/utils';
 
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 const channels = 2;
@@ -13,6 +14,12 @@ const noteFreq = (noteNumber) => 440 * Math.pow(2, (noteNumber - 69)/12);
 const saw = param => phase => (2 * (phase % 1) - 1);
 const detune = osc => phase => (0.4 * osc(phase) + .4 * osc(phase*1.01) + .4 * osc(phase*.984));
 const square = param => phase => (phase % 1) > (param.pw || .5) ? 1 : -1;
+
+const synthEvent = event => ({
+    type: event.type,
+    freq: noteFreq(event.note.number)                        ,
+    vel: event.velocity
+});
 
 class SimpleSynth {
     constructor(params = {}) {
@@ -65,7 +72,7 @@ class SimpleSynth {
 const PROC_SYNTH = "cheap-synth";
 const PROC_CRUSH = "cheap-crush";
 
-const createProcessors = async (ctx) => {
+const createProcessors = async (ctx, synthHandler) => {
     if (!ctx) {
         console.log("Well, no context. Whatchudo?");
         return;
@@ -74,12 +81,7 @@ const createProcessors = async (ctx) => {
     try {
         await ctx.audioWorklet.addModule("worklets/processor.js");
         const synthNode = new AudioWorkletNode(ctx, PROC_SYNTH)
-        synthNode.port.onmessage = event => {
-            console.log("Synth Worklet Node received messidsch:", event)
-            synthNode.port.postMessage({
-                soWhat: "thanks!"
-            });
-        };
+        synthNode.port.onmessage = synthHandler;
         procNodes.push(synthNode);
         procNodes.push(new AudioWorkletNode(ctx, PROC_CRUSH));
     }
@@ -110,7 +112,9 @@ const StrainerEngine = () => {
             if (ctx.audioWorklet === undefined) {
                 alert("AudioWorklet undefined, can't do shit!");
             }
-            const proc = await createProcessors(ctx);
+            const proc = await createProcessors(ctx, event => {
+                console.log("Synth Worklet Node received messidsch:", event)
+            });
             console.log("RIGHT SO PROC IS", proc);
             setAudioState({context: ctx, proc});
         };
@@ -141,10 +145,11 @@ const StrainerEngine = () => {
         }
 
         const noteOnListener = event => {
-            console.log(event.note, synthProc, crushProc);
+            console.table(synthEvent(event));
             audioSource.current = audioState.context.createBufferSource();
             audioSource.current.buffer = synth.newNote(audioState.context, .5 * audioState.context.sampleRate, event);
             if (synthProc && crushProc) {
+                synthProc.port.postMessage(synthEvent(event))
                 audioSource.current.connect(synthProc).connect(crushProc).connect(audioState.context.destination);
             }
             else if (crushProc) {

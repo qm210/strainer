@@ -19,8 +19,9 @@ const synthEvent = event => ({
 const PROC_SYNTH = "cheap-synth";
 const PROC_CRUSH = "cheap-crush";
 const PROC_FILTER = "cheap-filter";
+const PROC_REVERB = "cheap-reverb";
 
-const PROCS = [PROC_SYNTH, PROC_CRUSH, PROC_FILTER];
+const PROCS = [PROC_SYNTH, PROC_CRUSH, PROC_FILTER, PROC_REVERB];
 
 const createProcessors = async (ctx, synthHandler) => {
     if (!ctx) {
@@ -36,7 +37,7 @@ const createProcessors = async (ctx, synthHandler) => {
     }
     catch (e) {
         console.log("Couldn't get it up!", e);
-        return null;
+        throw e;
     }
     await ctx.resume();
     return procNodes;
@@ -61,15 +62,17 @@ const StrainerEngine = () => {
             }
             const proc = await createProcessors(ctx);
             setAudioState({context: ctx, proc});
-            const allParams = {};
-            for (const [pKey, pVal] of Object.entries(proc)) {
-                const procParams = {};
-                for (const [key, par] of pVal.parameters.entries()) {
-                    procParams[key] = reducedObject(par, ['value', 'defaultValue', 'minValue', 'maxValue']);
-                }
-                allParams[pKey] = procParams;
-            };
-            dispatch(Param.update(allParams));
+            if (proc) {
+                const allParams = {};
+                for (const [pKey, pVal] of Object.entries(proc)) {
+                    const procParams = {};
+                    for (const [key, par] of pVal.parameters.entries()) {
+                        procParams[key] = reducedObject(par, ['value', 'defaultValue', 'minValue', 'maxValue']);
+                    }
+                    allParams[pKey] = procParams;
+                };
+                dispatch(Param.update(allParams));
+            }
         };
         if (!audioState.context) {
             initAudioContext();
@@ -95,7 +98,7 @@ const StrainerEngine = () => {
             console.log("audio source ended", audioSource.current);
             audioSource.current = null;
         };
-    }, [audioState.context]);
+    }, [audioState]);
 
     React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {

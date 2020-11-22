@@ -173,7 +173,7 @@ class CheapFilter extends AudioWorkletProcessor {
                 this.updateHPCoeffs(HPcutoff[0]);
             }
             for (let i=0; i < output[channel].length; i++) {
-                const inputValue = input[channel][i];
+                const inputValue = this.saturate(input[channel][i], gain);
                 if (!LPcutoffConst) {
                     this.updateLPCoeffs(LPcutoff[i]);
                 }
@@ -182,7 +182,7 @@ class CheapFilter extends AudioWorkletProcessor {
                 }
                 this.z1 = inputValue * this.a0 + this.z1 * this.b1;
                 this.hp_z1 = this.z1 - (this.z1 * this.hp_a0 + this.hp_z1 * this.hp_b1);
-                output[channel][i] = this.saturate(this.hp_z1, gain);
+                output[channel][i] = this.hp_z1;
             }
         }
         return true;
@@ -190,11 +190,6 @@ class CheapFilter extends AudioWorkletProcessor {
 }
 
 class CheapCrush extends AudioWorkletProcessor {
-
-    constructor() {
-        super();
-        this.N = 2;
-    }
 
     static get parameterDescriptors() {
         return [{
@@ -213,23 +208,44 @@ class CheapCrush extends AudioWorkletProcessor {
                     for(let q = 0; q < quant; q++) {
                         outputList[o][ch][sample + q] = inputList[o][ch][sample];
                     }
-
-                    /*
-                    for (let k = 0; k < this.N; k++) {
-                        if (sample + k >= inputList[o][ch].length) {
-                            continue;
-                        }
-                        outputList[o][ch][sample] += 1/this.N * inputList[o][ch][sample+k];
-                    }
-                    */
                 }
             }
         }
         return true;
     }
+}
 
+class CheapReverb extends AudioWorkletProcessor {
+
+// steal: https://github.com/Rishikeshdaoo/Reverberator/blob/master/Reverberator/src/com/rishi/reverb/Reverberation.java
+
+    static get parameterDescriptors() {
+        return [{
+            name: 'quant',
+            defaultValue: 1,
+            minValue: 1,
+            maxValue: 128,
+        }];
+    }
+
+    constructor() {
+        super();
+    }
+
+    process(inputList, outputList, parameters) {
+        const quant = Math.round(+parameters["quant"][0]);
+        for (let o = 0; o < inputList.length; o++) {
+            for (let ch = 0; ch < inputList[o].length; ch++) {
+                for (let sample = 0; sample < inputList[o][ch].length; sample+=quant) {
+
+                }
+            }
+        }
+        return true;
+    }
 }
 
 registerProcessor("cheap-synth", CheapSynth);
 registerProcessor("cheap-crush", CheapCrush);
 registerProcessor("cheap-filter", CheapFilter);
+registerProcessor("cheap-reverb", CheapReverb);

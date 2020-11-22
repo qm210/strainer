@@ -90,7 +90,6 @@ const StrainerEngine = () => {
         const noteOnListener = event => {
             audioSource.current = audioState.context.createBufferSource();
             let chain = audioSource.current;
-            console.log(audioState.proc);
             for (const procName of PROCS) {
                 const proc = audioState.proc[procName];
                 proc.port.postMessage(synthEvent(event));

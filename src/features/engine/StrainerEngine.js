@@ -21,9 +21,9 @@ const PROC_CRUSH = "cheap-crush";
 const PROC_FILTER = "cheap-filter";
 const PROC_REVERB = "cheap-reverb";
 
-const PROCS = [PROC_SYNTH, PROC_CRUSH, PROC_FILTER, PROC_REVERB];
+const PROCS = [PROC_SYNTH, PROC_CRUSH, PROC_FILTER, PROC_CRUSH, PROC_REVERB];
 
-const createProcessors = async (ctx, synthHandler) => {
+const createProcessors = async (ctx) => {
     if (!ctx) {
         console.log("Well, no context. Whatchudo?");
         return;
@@ -32,11 +32,12 @@ const createProcessors = async (ctx, synthHandler) => {
     try {
         await ctx.audioWorklet.addModule("worklets/processor.js");
         for (const proc of PROCS) {
+            console.log(procNodes[proc])
             procNodes[proc] = new AudioWorkletNode(ctx, proc);
         }
     }
     catch (e) {
-        console.log("Couldn't get it up!", e);
+        console.error("Couldn't get it up!", e);
         throw e;
     }
     await ctx.resume();
@@ -107,7 +108,7 @@ const StrainerEngine = () => {
         }
 
         if (!audioState.context) {
-            console.log("No Audio Context.")
+            console.log("Setting up device: No Audio Context yet.")
             return;
         }
 

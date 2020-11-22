@@ -92,4 +92,4 @@ class RingBuffer {
     }
 } // class RingBuffer
 
-export default RingBuffer;
+export { RingBuffer };

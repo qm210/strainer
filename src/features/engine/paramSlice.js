@@ -1,24 +1,26 @@
 import { createSlice } from '@reduxjs/toolkit';
 
-const initialState = {
-    pw: .75,
-    fmSaw: 0,
-    decay: .25,
-    cutoff: 250,
-    bitcrushRate: 1,
-};
-
 export const paramSlice = createSlice({
   name: 'params',
-  initialState,
+  initialState: {},
   reducers: {
     update: (state, action) => ({
         ...state,
-        ...action.payload
+        ...action.payload,
     }),
+    updateSingle: (state, {payload: {name, key, value}}) => ({
+        ...state,
+        [name]: {
+            ...state[name],
+            [key]: {
+                ...state[name][key],
+                value
+            }
+        }
+    })
   },
 });
 
-export const { update } = paramSlice.actions;
-
 export default paramSlice.reducer;
+
+export const { update, updateSingle } = paramSlice.actions;

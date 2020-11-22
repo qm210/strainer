@@ -19,7 +19,12 @@ class CheapSynth extends AudioWorkletProcessor {
             name: 'fmSaw',
             defaultValue: 0,
             minValue: 0,
-            maxValue: 1,
+            maxValue: 100,
+        }, {
+            name: 'shape',
+            defaultValue: 1,
+            minValue: 0,
+            maxValue: 2,
         }];
     }
 
@@ -70,6 +75,7 @@ class CheapSynth extends AudioWorkletProcessor {
         const envDecay = parameters.decay[0];
         const fmSaw = parameters.fmSaw[0];
         const pw = parameters.pw[0];
+        const shape = parameters.shape[0];
 
         const output = outputList[0];
         for (let i=0; i < output[0].length; i++) {
@@ -78,7 +84,11 @@ class CheapSynth extends AudioWorkletProcessor {
                     continue;
                 }
                 const noteTime = currentTime - voice.timeZero;
-                const osc = phase => saw()(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
+                const baseOsc = ({pw}) =>
+                    shape < 1
+                        ? phase => ((1-shape) * saw()(phase) + shape * saw()(Math.pow(phase, pw*(pw-.2)*(pw-.3)*(pw-.4))))
+                        : phase => ((2 - shape) * saw()(phase) + (shape - 1) * square({pw})(phase));
+                const osc = phase => baseOsc({pw})(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
                 voice.phase = (voice.phase + voice.freq/sampleRate) % 1;
                 output[0][i] += osc(voice.phase) * voice.vel * this.env(noteTime, {decay: envDecay});
 //                output[1][i] = i < 10 ? 0 : output[0][i - 10];
@@ -93,7 +103,7 @@ class CheapFilter extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [{
             name: 'cutoff',
-            defaultValue: 250,
+            defaultValue: 0.25 * sampleRate,
             minValue: 0,
             maxValue: 0.5 * sampleRate,
         }];

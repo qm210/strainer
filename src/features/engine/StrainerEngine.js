@@ -4,6 +4,7 @@ import WebMidi from 'webmidi';
 import { Header, Segment } from 'semantic-ui-react';
 import Slider from 'react-rangeslider';
 import * as Param from './paramSlice';
+import { reducedObject } from './../../app/utils';
 
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 
@@ -11,26 +12,26 @@ const noteFreq = (noteNumber) => 440 * Math.pow(2, (noteNumber - 69)/12);
 
 const synthEvent = event => ({
     type: event.type,
-    freq: noteFreq(event.note.number)                        ,
+    freq: noteFreq(event.note.number),
     vel: event.velocity
 });
 
-const PROCS = [
-    "cheap-synth",
-    "cheap-crush",
-    "cheap-filter"
-];
+const PROC_SYNTH = "cheap-synth";
+const PROC_CRUSH = "cheap-crush";
+const PROC_FILTER = "cheap-filter";
+
+const PROCS = [PROC_SYNTH, PROC_CRUSH, PROC_FILTER];
 
 const createProcessors = async (ctx, synthHandler) => {
     if (!ctx) {
         console.log("Well, no context. Whatchudo?");
         return;
     }
-    const procNodes = [];
+    const procNodes = {};
     try {
         await ctx.audioWorklet.addModule("worklets/processor.js");
         for (const proc of PROCS) {
-            procNodes.push(new AudioWorkletNode(ctx, proc));
+            procNodes[proc] = new AudioWorkletNode(ctx, proc);
         }
     }
     catch (e) {
@@ -60,37 +61,20 @@ const StrainerEngine = () => {
             }
             const proc = await createProcessors(ctx);
             setAudioState({context: ctx, proc});
+            const allParams = {};
+            for (const [pKey, pVal] of Object.entries(proc)) {
+                const procParams = {};
+                for (const [key, par] of pVal.parameters.entries()) {
+                    procParams[key] = reducedObject(par, ['value', 'defaultValue', 'minValue', 'maxValue']);
+                }
+                allParams[pKey] = procParams;
+            };
+            dispatch(Param.update(allParams));
         };
         if (!audioState.context) {
             initAudioContext();
         }
-    }, [audioState, setAudioState]);
-
-    // has to match the createProcessors() order of AudioWorkletProcessor creation!
-    const [synthProc, crushProc, filterProc] = React.useMemo(() => audioState.proc || Array(PROCS.length).fill(null), [audioState]);
-
-    React.useEffect(() => {
-        if (!synthProc) {
-            return;
-        }
-        synthProc.parameters.get("fmSaw").value = param.fmSaw;
-        synthProc.parameters.get("pw").value = param.pw;
-        synthProc.parameters.get("decay").value = param.decay;
-    }, [synthProc, param])
-
-    React.useEffect(() => {
-        if (!crushProc) {
-            return;
-        }
-        crushProc.parameters.get("quant").value = param.bitcrushRate;
-    }, [crushProc, param.bitcrushRate])
-
-    React.useEffect(() => {
-        if (!filterProc) {
-            return;
-        }
-        filterProc.parameters.get("cutoff").value = param.cutoff;
-    }, [filterProc, param.cutoff]);
+    }, [audioState, setAudioState, dispatch]);
 
     React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {
@@ -106,13 +90,16 @@ const StrainerEngine = () => {
         const noteOnListener = event => {
             audioSource.current = audioState.context.createBufferSource();
             let chain = audioSource.current;
-            for (const proc of audioState.proc) {
+            console.log(audioState.proc);
+            for (const procName of PROCS) {
+                const proc = audioState.proc[procName];
                 proc.port.postMessage(synthEvent(event));
                 chain = chain.connect(proc);
             }
             chain.connect(audioState.context.destination);
             audioSource.current.start();
             audioSource.current.onended = () => {
+                console.log("audio source ended", audioSource.current);
                 audioSource.current = null;
             };
         }
@@ -124,11 +111,40 @@ const StrainerEngine = () => {
         }
     }, [dispatch, audioState, currentDevice]);
 
+    const updateSingleParameter = React.useCallback((name, key, value) => {
+        const proc = audioState.proc[name];
+        if (!proc) {
+            return;
+        }
+        proc.parameters.get(key).value = value;
+        dispatch(Param.updateSingle({name, key, value}));
+    }, [audioState.proc]);
+
     return <>
         <Header as='h4' attached='top'>
             Engine.
         </Header>
         <Segment attached>
+        {
+            Object.entries(param).map(([name, proc], pIndex) =>
+                <div key={pIndex}>
+                    {
+                        Object.entries(proc).map(([key, par], index) =>
+                        <React.Fragment key={index}>
+                            <label>{name} / {key}</label>
+                            <Slider
+                                min = {par.minValue}
+                                max = {par.maxValue}
+                                step = {0.01}
+                                value = {par.value}
+                                onChange = {value => updateSingleParameter(name, key, value)}
+                            />
+                        </React.Fragment>
+                    )}
+                </div>
+            )
+        }
+        {/*
             <label>cutoff freq</label>
             <Slider
                 min = {0}
@@ -161,6 +177,7 @@ const StrainerEngine = () => {
                 value = {param.decay}
                 onChange = {value => dispatch(Param.update({decay: value}))}
             />
+             */}
         </Segment>
     </>;
 

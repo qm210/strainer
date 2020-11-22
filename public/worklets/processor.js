@@ -1,5 +1,5 @@
 const saw = param => phase => (2 * (phase % 1) - 1);
-const detune = osc => phase => (0.4 * osc(phase) + .4 * osc(phase*1.01) + .4 * osc(phase*.984));
+const detune = param => osc => phase => !param.spread ? osc(phase) : .33 * osc(phase) + .33 * osc(phase*(1+.1*param.spread)) + .33 * osc(phase*(1-.1*param.spread));
 const square = param => phase => (phase % 1) > (param.pw || .5) ? 1 : -1;
 
 
@@ -25,6 +25,11 @@ class CheapSynth extends AudioWorkletProcessor {
             defaultValue: 1,
             minValue: 0,
             maxValue: 2,
+        }, {
+            name: 'detune',
+            defaultValue: 0,
+            minValue: 0,
+            maxValue: 1,
         }];
     }
 
@@ -48,14 +53,16 @@ class CheapSynth extends AudioWorkletProcessor {
         const {data} = event;
         switch (data.type) {
             case "noteon":
-                this.voice[this.voiceIndex] = ({
-                    ...this.voice[this.voiceIndex],
+                const alreadyVoiceIndex = this.voice.findIndex(it => it.freq === data.freq);
+                const voiceIndex = alreadyVoiceIndex === -1 ? this.voiceIndex : alreadyVoiceIndex;
+                this.voice[voiceIndex] = ({
+                    ...this.voice[voiceIndex],
                     timeZero: currentTime,
                     phase: 0,
                     freq: data.freq,
                     vel: this.velocityFunc(data.vel)
                 });
-                this.voiceIndex = (this.voiceIndex + 1) % this.voice.length;
+                this.voiceIndex = (voiceIndex + 1) % this.voice.length;
                 break;
 
             default:
@@ -76,6 +83,7 @@ class CheapSynth extends AudioWorkletProcessor {
         const fmSaw = parameters.fmSaw[0];
         const pw = parameters.pw[0];
         const shape = parameters.shape[0];
+        const spread = parameters.detune[0];
 
         const output = outputList[0];
         for (let i=0; i < output[0].length; i++) {
@@ -88,7 +96,7 @@ class CheapSynth extends AudioWorkletProcessor {
                     shape < 1
                         ? phase => ((1-shape) * saw()(phase) + shape * saw()(Math.pow(phase, pw*(pw-.2)*(pw-.3)*(pw-.4))))
                         : phase => ((2 - shape) * saw()(phase) + (shape - 1) * square({pw})(phase));
-                const osc = phase => baseOsc({pw})(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
+                const osc = phase => detune({spread})(baseOsc({pw}))(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
                 voice.phase = (voice.phase + voice.freq/sampleRate) % 1;
                 output[0][i] += osc(voice.phase) * voice.vel * this.env(noteTime, {decay: envDecay});
 //                output[1][i] = i < 10 ? 0 : output[0][i - 10];
@@ -106,6 +114,11 @@ class CheapFilter extends AudioWorkletProcessor {
             defaultValue: 0.25 * sampleRate,
             minValue: 0,
             maxValue: 0.5 * sampleRate,
+        }, {
+            name: 'saturate',
+            defaultValue: 1,
+            minValue: 0.01,
+            maxValue: 10,
         }];
     }
 
@@ -130,16 +143,19 @@ class CheapFilter extends AudioWorkletProcessor {
 
         const cutoff = parameters.cutoff;
         const cutoffConst = cutoff.length === 1;
+        const gain = parameters.saturate[0];
 
         for (let channel = 0; channel < output.length; channel++) {
             if (cutoffConst) {
                 this.updateCoeffs(cutoff[0]);
             }
             for (let i=0; i < output[channel].length; i++) {
+                const inputValue = input[channel][i];
+                const saturatedValue = 2/Math.PI * Math.atan(gain * inputValue);
                 if (!cutoffConst) {
                     this.updateCoeffs(cutoff[i]);
                 }
-                this.z1 = input[channel][i] * this.a0 + this.z1 * this.b1;
+                this.z1 = saturatedValue * this.a0 + this.z1 * this.b1;
                 output[channel][i] = this.z1;
             }
         }

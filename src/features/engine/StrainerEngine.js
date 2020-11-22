@@ -117,7 +117,7 @@ const StrainerEngine = () => {
         }
         proc.parameters.get(key).value = value;
         dispatch(Param.updateSingle({name, key, value}));
-    }, [audioState.proc]);
+    }, [audioState.proc, dispatch]);
 
     return <>
         <Header as='h4' attached='top'>

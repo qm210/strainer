@@ -1,5 +1,5 @@
 const saw = param => phase => (2 * (phase % 1) - 1);
-const detune = param => osc => phase => !param.spread ? osc(phase) : .33 * osc(phase) + .33 * osc(phase*(1+.1*param.spread)) + .33 * osc(phase*(1-.1*param.spread));
+const detune = param => osc => phase => !param.spread ? osc(phase) : .33 * osc(phase) + .33 * osc(phase*(1+.05*param.spread)) + .33 * osc(phase*(1-.1*param.spread));
 const square = param => phase => (phase % 1) > (param.pw || .5) ? 1 : -1;
 
 
@@ -38,7 +38,7 @@ class CheapSynth extends AudioWorkletProcessor {
     constructor() {
         super();
         this.port.onmessage = this.handleMessage.bind(this);
-        this.voice = Array(3).fill({
+        this.voice = Array(4).fill({
             phase: 0,
             timeZero: null,
             freq: 0,
@@ -115,14 +115,14 @@ class CheapFilter extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [{
             name: 'lowpass',
-            defaultValue: 0.25 * sampleRate,
+            defaultValue: 10000,
             minValue: 0,
-            maxValue: 0.5 * sampleRate,
+            maxValue: 20000,
         }, {
             name: 'hipass',
-            defaultValue: 0.25 * sampleRate,
+            defaultValue: 10000,
             minValue: 0,
-            maxValue: 0.5 * sampleRate,
+            maxValue: 20000,
         }, {
             name: 'saturate',
             defaultValue: 1,
@@ -133,8 +133,8 @@ class CheapFilter extends AudioWorkletProcessor {
 
     constructor() {
         super();
-        this.updateLPCoeffs(.25 * sampleRate);
-        this.updateHPCoeffs(.25 * sampleRate);
+        this.updateLPCoeffs(10000);
+        this.updateHPCoeffs(10000);
     }
 
     updateLPCoeffs(freq) {

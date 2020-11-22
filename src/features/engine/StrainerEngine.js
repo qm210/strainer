@@ -77,6 +77,27 @@ const StrainerEngine = () => {
     }, [audioState, setAudioState, dispatch]);
 
     React.useEffect(() => {
+        if (!audioState.context) {
+            return;
+        }
+        audioSource.current = audioState.context.createBufferSource();
+        let chain = audioSource.current;
+        for (const procName of PROCS) {
+            const proc = audioState.proc[procName];
+            if (proc) {
+                console.log("CONNECT", procName, proc);
+                chain = chain.connect(proc);
+            }
+        }
+        chain.connect(audioState.context.destination);
+        audioSource.current.start();
+        audioSource.current.onended = () => {
+            console.log("audio source ended", audioSource.current);
+            audioSource.current = null;
+        };
+    }, [audioState.context]);
+
+    React.useEffect(() => {
         if (!currentDevice || currentDevice.state !== 'connected') {
             console.log("Can't do shit, current device is...", currentDevice);
             return;
@@ -88,19 +109,12 @@ const StrainerEngine = () => {
         }
 
         const noteOnListener = event => {
-            audioSource.current = audioState.context.createBufferSource();
-            let chain = audioSource.current;
             for (const procName of PROCS) {
                 const proc = audioState.proc[procName];
-                proc.port.postMessage(synthEvent(event));
-                chain = chain.connect(proc);
+                if (proc) {
+                    proc.port.postMessage(synthEvent(event));
+                }
             }
-            chain.connect(audioState.context.destination);
-            audioSource.current.start();
-            audioSource.current.onended = () => {
-                console.log("audio source ended", audioSource.current);
-                audioSource.current = null;
-            };
         }
 
         console.log("Has Audio Context. Init Event Listeners for ", currentDevice);
@@ -143,40 +157,6 @@ const StrainerEngine = () => {
                 </div>
             )
         }
-        {/*
-            <label>cutoff freq</label>
-            <Slider
-                min = {0}
-                max = {6666}
-                step = {1}
-                value = {param.cutoff}
-                onChange = {value => dispatch(Param.update({cutoff: value}))}
-            />
-            <label>bitcrush</label>
-            <Slider
-                min = {1}
-                max = {128}
-                step = {1}
-                value = {param.bitcrushRate}
-                onChange = {value => dispatch(Param.update({bitcrushRate: value}))}
-            />
-            <label>phase distortion (FM)</label>
-            <Slider
-                min = {0}
-                max = {10}
-                step = {.01}
-                value = {param.fmSaw}
-                onChange = {value => dispatch(Param.update({fmSaw: value}))}
-            />
-            <label>decay</label>
-            <Slider
-                min = {0.01}
-                max = {1}
-                step = {.01}
-                value = {param.decay}
-                onChange = {value => dispatch(Param.update({decay: value}))}
-            />
-             */}
         </Segment>
     </>;
 

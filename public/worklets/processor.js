@@ -6,32 +6,34 @@ const square = param => phase => (phase % 1) > (param.pw || .5) ? 1 : -1;
 class CheapSynth extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [{
-            name: 'decay',
-            defaultValue: .25,
-            minValue: 0.01,
-            maxValue: 1,
-        }, {
-            name: 'pw',
-            defaultValue: .75,
-            minValue: 0.5,
-            maxValue: 0.99,
-        }, {
-            name: 'fmSaw',
-            defaultValue: 0,
-            minValue: 0,
-            maxValue: 100,
-        }, {
-            name: 'shape',
-            defaultValue: 1,
-            minValue: 0,
-            maxValue: 2,
-        }, {
-            name: 'detune',
-            defaultValue: 0,
-            minValue: 0,
-            maxValue: 1,
-        }];
+                name: 'decay',
+                defaultValue: .25,
+                minValue: 0.01,
+                maxValue: 1,
+            }, {
+                name: 'pw',
+                defaultValue: .75,
+                minValue: 0.5,
+                maxValue: 0.99,
+            }, {
+                name: 'fmSaw',
+                defaultValue: 0,
+                minValue: 0,
+                maxValue: 100,
+            }, {
+                name: 'shape',
+                defaultValue: 1,
+                minValue: 0,
+                maxValue: 2,
+            }, {
+                name: 'detune',
+                defaultValue: 0,
+                minValue: 0,
+                maxValue: 1,
+            },
+        ];
     }
+
 
     constructor() {
         super();
@@ -98,7 +100,9 @@ class CheapSynth extends AudioWorkletProcessor {
                         : phase => ((2 - shape) * saw()(phase) + (shape - 1) * square({pw})(phase));
                 const osc = phase => detune({spread})(baseOsc({pw}))(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
                 voice.phase = (voice.phase + voice.freq/sampleRate) % 1;
-                output[0][i] += osc(voice.phase) * voice.vel * this.env(noteTime, {decay: envDecay});
+                let synthOut = osc(voice.phase);
+                output[0][i] += synthOut * voice.vel * this.env(noteTime, {decay: envDecay});
+
 //                output[1][i] = i < 10 ? 0 : output[0][i - 10];
             }
         }
@@ -110,7 +114,12 @@ class CheapSynth extends AudioWorkletProcessor {
 class CheapFilter extends AudioWorkletProcessor {
     static get parameterDescriptors() {
         return [{
-            name: 'cutoff',
+            name: 'lowpass',
+            defaultValue: 0.25 * sampleRate,
+            minValue: 0,
+            maxValue: 0.5 * sampleRate,
+        }, {
+            name: 'hipass',
             defaultValue: 0.25 * sampleRate,
             minValue: 0,
             maxValue: 0.5 * sampleRate,
@@ -124,14 +133,23 @@ class CheapFilter extends AudioWorkletProcessor {
 
     constructor() {
         super();
-        this.updateCoeffs(250);
+        this.updateLPCoeffs(.25 * sampleRate);
+        this.updateHPCoeffs(.25 * sampleRate);
     }
 
-    updateCoeffs(freq) {
+    updateLPCoeffs(freq) {
         this.b1 = Math.exp(-2 * Math.PI * freq/sampleRate);
         this.a0 = 1 - this.b1;
         this.z1 = 0;
     }
+
+    updateHPCoeffs(freq) {
+        this.hp_b1 = Math.exp(-2 * Math.PI * freq/sampleRate);
+        this.hp_a0 = 1 - this.hp_b1;
+        this.hp_z1 = 0;
+    }
+
+    saturate = (value, gain) => 2/Math.PI * Math.atan(gain * value);
 
     process(inputs, outputs, parameters) {
         const input = inputs[0];
@@ -141,22 +159,30 @@ class CheapFilter extends AudioWorkletProcessor {
             return true;
         }
 
-        const cutoff = parameters.cutoff;
-        const cutoffConst = cutoff.length === 1;
+        const LPcutoff = parameters.lowpass;
+        const LPcutoffConst = LPcutoff.length === 1;
+        const HPcutoff = parameters.hipass;
+        const HPcutoffConst = LPcutoff.length === 1;
         const gain = parameters.saturate[0];
 
         for (let channel = 0; channel < output.length; channel++) {
-            if (cutoffConst) {
-                this.updateCoeffs(cutoff[0]);
+            if (LPcutoffConst) {
+                this.updateLPCoeffs(LPcutoff[0]);
+            }
+            if (HPcutoffConst) {
+                this.updateHPCoeffs(HPcutoff[0]);
             }
             for (let i=0; i < output[channel].length; i++) {
                 const inputValue = input[channel][i];
-                const saturatedValue = 2/Math.PI * Math.atan(gain * inputValue);
-                if (!cutoffConst) {
-                    this.updateCoeffs(cutoff[i]);
+                if (!LPcutoffConst) {
+                    this.updateLPCoeffs(LPcutoff[i]);
                 }
-                this.z1 = saturatedValue * this.a0 + this.z1 * this.b1;
-                output[channel][i] = this.z1;
+                if (!HPcutoffConst) {
+                    this.updateHPCoeffs(HPcutoff[i]);
+                }
+                this.z1 = inputValue * this.a0 + this.z1 * this.b1;
+                this.hp_z1 = this.z1 - (this.z1 * this.hp_a0 + this.hp_z1 * this.hp_b1);
+                output[channel][i] = this.saturate(this.hp_z1, gain);
             }
         }
         return true;

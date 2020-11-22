@@ -16,10 +16,10 @@ class CheapSynth extends AudioWorkletProcessor {
                 minValue: 0.5,
                 maxValue: 0.99,
             }, {
-                name: 'fmSaw',
+                name: 'phaseDrop',
                 defaultValue: 0,
                 minValue: 0,
-                maxValue: 100,
+                maxValue: 10,
             }, {
                 name: 'shape',
                 defaultValue: 1,
@@ -82,7 +82,7 @@ class CheapSynth extends AudioWorkletProcessor {
           }
           */
         const envDecay = parameters.decay[0];
-        const fmSaw = parameters.fmSaw[0];
+        const phaseDrop = parameters.phaseDrop[0];
         const pw = parameters.pw[0];
         const shape = parameters.shape[0];
         const spread = parameters.detune[0];
@@ -98,7 +98,7 @@ class CheapSynth extends AudioWorkletProcessor {
                     shape < 1
                         ? phase => ((1-shape) * saw()(phase) + shape * saw()(Math.pow(phase, pw*(pw-.2)*(pw-.3)*(pw-.4))))
                         : phase => ((2 - shape) * saw()(phase) + (shape - 1) * square({pw})(phase));
-                const osc = phase => detune({spread})(baseOsc({pw}))(phase * (1 + fmSaw * this.env(noteTime, {decay: 0.1})));
+                const osc = phase => detune({spread})(baseOsc({pw}))(phase * (1 + phaseDrop * this.env(noteTime, {decay: 0.1})));
                 voice.phase = (voice.phase + voice.freq/sampleRate) % 1;
                 let synthOut = osc(voice.phase);
                 output[0][i] += synthOut * voice.vel * this.env(noteTime, {decay: envDecay});
